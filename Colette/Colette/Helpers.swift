@@ -18,6 +18,19 @@ enum DateHelpers {
         f.dateFormat = "MMMM yyyy"
         return f
     }()
+
+    static let dayKey: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    static let dayLabel: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
 }
 
 /// The month key for the current calendar month, e.g. "2026-06".
@@ -32,4 +45,10 @@ func monthLabel(from key: String) -> String {
 /// First day of the month for a "2026-06" key (used as the chart's x value).
 func firstOfMonth(from key: String) -> Date {
     DateHelpers.monthKey.date(from: key) ?? .now
+}
+
+/// Turns a "2026-06-19" day key into a friendly label like "Jun 19".
+func dayLabel(from key: String) -> String {
+    guard let date = DateHelpers.dayKey.date(from: key) else { return key }
+    return DateHelpers.dayLabel.string(from: date)
 }

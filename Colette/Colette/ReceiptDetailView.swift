@@ -23,6 +23,9 @@ struct ReceiptDetailView: View {
                 Picker("Currency", selection: $receipt.currency) {
                     ForEach(CurrencyConverter.supported, id: \.self) { Text($0).tag($0) }
                 }
+                Picker("Category", selection: $receipt.category) {
+                    ForEach(ReceiptCategory.allCases) { Text($0.rawValue).tag($0) }
+                }
             }
 
             Section {

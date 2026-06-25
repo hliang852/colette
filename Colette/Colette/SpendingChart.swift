@@ -21,7 +21,12 @@ struct SpendingChart: View {
                 .cornerRadius(4)
             }
             .chartXAxis {
-                AxisMarks(values: .stride(by: .month)) { _ in
+                // Pin one tick per actual month in `data` instead of letting
+                // Charts stride across the whole date range — striding could
+                // add an extra tick near the edge of the range that crowded
+                // against the last real label, causing overlap.
+                AxisMarks(values: data.map(\.date)) { _ in
+                    AxisGridLine()
                     AxisValueLabel(format: .dateTime.month(.abbreviated))
                 }
             }
