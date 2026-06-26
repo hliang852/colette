@@ -15,7 +15,7 @@ enum ReceiptParser {
     /// Runs Apple's on-device Vision text recognition and returns the lines
     /// roughly in top-to-bottom reading order.
     static func recognizeText(in image: UIImage) async -> [String] {
-        guard let cgImage = image.normalizedUp().cgImage else { return [] }
+        guard let cgImage = image.preparedForOCR().cgImage else { return [] }
 
         return await withCheckedContinuation { continuation in
             let request = VNRecognizeTextRequest { request, _ in
@@ -131,12 +131,39 @@ enum ReceiptParser {
 }
 
 private extension UIImage {
-    /// Returns a copy drawn upright so Vision OCR reads it correctly regardless
-    /// of how the photo was captured (camera photos are often sideways).
-    func normalizedUp() -> UIImage {
-        guard imageOrientation != .up else { return self }
-        return UIGraphicsImageRenderer(size: size).image { _ in
-            draw(in: CGRect(origin: .zero, size: size))
+    /// Returns a copy that's upright and capped to a reasonable resolution,
+    /// ready for Vision OCR.
+    ///
+    /// Two problems this solves, both of which only show up with photos that
+    /// didn't come from the document scanner (e.g. picked from the photo
+    /// library):
+    ///
+    /// 1. `VNImageRequestHandler(cgImage:)` ignores `imageOrientation`
+    ///    metadata entirely, so a sideways photo OCRs sideways unless we
+    ///    rotate the actual pixels first.
+    /// 2. Some image representations (certain HEIC variants, edited or Live
+    ///    Photo stills) don't expose a `cgImage` until something forces a
+    ///    render. The old code read `.cgImage` directly and silently
+    ///    returned no text at all if that was `nil` — `total: 0`, no error,
+    ///    no signal anything went wrong. Always re-rasterizing through
+    ///    `UIGraphicsImageRenderer` guarantees a real `cgImage` comes out.
+    ///
+    /// As a bonus, capping the long edge keeps OCR fast and avoids handing
+    /// Vision an unprocessed 12MP+ camera photo when a scanner-cropped image
+    /// would normally be a fraction of that size.
+    func preparedForOCR(maxDimension: CGFloat = 2000) -> UIImage {
+        guard size.width > 0, size.height > 0 else { return self }
+
+        let scale = min(1, maxDimension / max(size.width, size.height))
+        let targetSize = CGSize(width: size.width * scale, height: size.height * scale)
+
+        // scale = 1 (not the device's screen scale): targetSize is already in
+        // the pixel budget we want, so we don't need an extra 2x/3x multiply.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        return renderer.image { _ in
+            draw(in: CGRect(origin: .zero, size: targetSize))
         }
     }
 }

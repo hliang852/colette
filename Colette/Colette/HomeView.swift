@@ -10,6 +10,13 @@ struct HomeView: View {
     @State private var displayCurrency = "USD"
     @State private var granularity: SpendingGranularity = .monthly
 
+    /// The recurring monthly spending goal, persisted across launches. Stored
+    /// in whichever currency it was entered in (`goalCurrency`); 0 means no
+    /// goal has been set.
+    @AppStorage("monthlyGoalAmount") private var goalAmount: Double = 0
+    @AppStorage("monthlyGoalCurrency") private var goalCurrency: String = "USD"
+    @State private var showGoalSheet = false
+
     private func inDisplayCurrency(_ receipt: Receipt) -> Double {
         CurrencyConverter.convert(receipt.total, from: receipt.currency, to: displayCurrency)
     }
@@ -35,6 +42,20 @@ struct HomeView: View {
         monthToDateByCategory.values.reduce(0, +)
     }
 
+    /// The goal converted into whatever currency is currently being displayed,
+    /// regardless of which currency it was originally entered in. 0 if unset.
+    private var goalInDisplayCurrency: Double {
+        guard goalAmount > 0 else { return 0 }
+        return CurrencyConverter.convert(goalAmount, from: goalCurrency, to: displayCurrency)
+    }
+
+    /// Fraction of the goal spent so far this month, e.g. 0.42 for 42%.
+    /// nil when there's no goal set, so the progress bar can hide itself.
+    private var goalProgress: Double? {
+        guard goalInDisplayCurrency > 0 else { return nil }
+        return monthToDateTotal / goalInDisplayCurrency
+    }
+
     private var recentReceipts: [Receipt] {
         Array(receipts.prefix(5))
     }
@@ -46,6 +67,14 @@ struct HomeView: View {
                     summaryHeader
                         .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
                         .listRowBackground(Color.clear)
+
+                    // Sits below the total and above the trend chart, per the
+                    // home tab's reading order: how much, against goal, then trend.
+                    if let goalProgress {
+                        goalProgressView(progress: goalProgress)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
+                            .listRowBackground(Color.clear)
+                    }
 
                     granularityPicker
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
@@ -72,6 +101,18 @@ struct HomeView: View {
                 }
             }
             .navigationTitle("Overview")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showGoalSheet = true
+                    } label: {
+                        Label("Goal", systemImage: "target")
+                    }
+                }
+            }
+            .sheet(isPresented: $showGoalSheet) {
+                GoalSettingView(goalAmount: $goalAmount, goalCurrency: $goalCurrency)
+            }
             .overlay {
                 if receipts.isEmpty {
                     ContentUnavailableView(
@@ -125,6 +166,27 @@ struct HomeView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
+    }
+
+    /// Progress toward this month's goal. Turns red and shows "Over goal"
+    /// once spending passes 100%, instead of just clipping the bar at full.
+    private func goalProgressView(progress: Double) -> some View {
+        let isOverBudget = progress > 1.0
+
+        return VStack(alignment: .leading, spacing: 6) {
+            ProgressView(value: min(progress, 1.0))
+                .tint(isOverBudget ? .red : .accentColor)
+
+            HStack {
+                Text(isOverBudget ? "Over goal" : "\(Int((progress * 100).rounded()))% of goal")
+                    .font(.caption)
+                    .foregroundStyle(isOverBudget ? .red : .secondary)
+                Spacer()
+                Text("Goal: \(goalInDisplayCurrency, format: .currency(code: displayCurrency))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var granularityPicker: some View {
