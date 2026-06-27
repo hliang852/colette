@@ -37,7 +37,7 @@ struct GoalSettingView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Monthly spending goal") {
+                Section {
                     HStack {
                         Text("Amount")
                         Spacer()
@@ -48,6 +48,8 @@ struct GoalSettingView: View {
                     Picker("Currency", selection: $currency) {
                         ForEach(CurrencyConverter.supported, id: \.self) { Text($0).tag($0) }
                     }
+                } header: {
+                    Text("Monthly spending goal")
                 } footer: {
                     if enteredAmount > 0 {
                         Text("≈ \(convertedAmount, format: .currency(code: otherCurrency)) at the fixed 1 USD = 7.8 HKD rate")
