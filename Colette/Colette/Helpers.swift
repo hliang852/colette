@@ -1,5 +1,13 @@
 import Foundation
 
+/// Shared visual constants used across the chart/bar views, so tweaking one
+/// changes them everywhere consistently.
+enum UIMetrics {
+    /// Corner radius used by bar-style shapes: chart bars (HomeSpendingChart,
+    /// SpendingChart) and the category split bar (CategorySplitBar).
+    static let barCornerRadius: CGFloat = 4
+}
+
 /// The device's currency code (falls back to USD), used for formatting amounts.
 var currencyCode: String { Locale.current.currency?.identifier ?? "USD" }
 
@@ -31,10 +39,20 @@ enum DateHelpers {
         f.dateFormat = "MMM d"
         return f
     }()
+
+    static let yearKey: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy"
+        return f
+    }()
 }
 
 /// The month key for the current calendar month, e.g. "2026-06".
 var currentMonthKey: String { DateHelpers.monthKey.string(from: .now) }
+
+/// The year key for the current calendar year, e.g. "2026".
+var currentYearKey: String { DateHelpers.yearKey.string(from: .now) }
 
 /// Turns a "2026-06" month key into a friendly label like "June 2026".
 func monthLabel(from key: String) -> String {

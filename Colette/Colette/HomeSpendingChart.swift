@@ -33,7 +33,7 @@ struct HomeSpendingChart: View {
                     y: .value("Spent", period.totals[category] ?? 0)
                 )
                 .foregroundStyle(by: .value("Category", category.rawValue))
-                .cornerRadius(4)
+                .cornerRadius(UIMetrics.barCornerRadius)
             }
         }
         .chartForegroundStyleScale([

@@ -8,6 +8,11 @@ struct ReceiptDetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
 
+    // Text mirror of receipt.total so the field can be blank (rather than a
+    // persistent "0") when the amount is zero, and only writes back to the
+    // model as the user types.
+    @State private var totalText = ""
+
     var body: some View {
         Form {
             Section("Receipt") {
@@ -16,9 +21,12 @@ struct ReceiptDetailView: View {
                 HStack {
                     Text("Total")
                     Spacer()
-                    TextField("0.00", value: $receipt.total, format: .number)
+                    TextField("0.00", text: $totalText)
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
+                        .onChange(of: totalText) { _, newValue in
+                            receipt.total = Double(newValue) ?? 0
+                        }
                 }
                 Picker("Currency", selection: $receipt.currency) {
                     ForEach(CurrencyConverter.supported, id: \.self) { Text($0).tag($0) }
@@ -40,5 +48,8 @@ struct ReceiptDetailView: View {
         }
         .navigationTitle(receipt.storeName.isEmpty ? "Receipt" : receipt.storeName)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            totalText = receipt.total == 0 ? "" : String(format: "%.2f", receipt.total)
+        }
     }
 }

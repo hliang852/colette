@@ -1,33 +1,42 @@
 import SwiftUI
 import Charts
 
-/// A bar chart of spending per month, newest months on the right.
-/// Amounts are already converted to `displayCurrency` by the caller.
+/// A bar chart of daily spending for a single category (Groceries or Dining
+/// Out), most recent days on the right. Amounts are already converted to
+/// `displayCurrency` by the caller. Bars are drawn in `barColor` so the
+/// Groceries tab reads blue and the Dining Out tab reads orange.
 struct SpendingChart: View {
-    let data: [MonthSpending]
+    let data: [PeriodSpending]
     let displayCurrency: String
+    let barColor: Color
+
+    /// Thins the x-axis labels so up to ~14 days of bars don't crowd the axis.
+    private var xAxisDates: [Date] {
+        let maxLabels = 7
+        guard data.count > maxLabels else { return data.map(\.date) }
+        let step = Int(ceil(Double(data.count) / Double(maxLabels)))
+        return data.enumerated().compactMap { index, period in
+            index % step == 0 ? period.date : nil
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Monthly spending")
+            Text("Daily spending")
                 .font(.headline)
 
-            Chart(data) { month in
+            Chart(data) { period in
                 BarMark(
-                    x: .value("Month", month.date, unit: .month),
-                    y: .value("Spent", month.total)
+                    x: .value("Day", period.date, unit: .day),
+                    y: .value("Spent", period.total)
                 )
-                .foregroundStyle(Color.accentColor.gradient)
-                .cornerRadius(4)
+                .foregroundStyle(barColor.gradient)
+                .cornerRadius(UIMetrics.barCornerRadius)
             }
             .chartXAxis {
-                // Pin one tick per actual month in `data` instead of letting
-                // Charts stride across the whole date range — striding could
-                // add an extra tick near the edge of the range that crowded
-                // against the last real label, causing overlap.
-                AxisMarks(values: data.map(\.date)) { _ in
+                AxisMarks(values: xAxisDates) { _ in
                     AxisGridLine()
-                    AxisValueLabel(format: .dateTime.month(.abbreviated))
+                    AxisValueLabel(format: .dateTime.day().month(.abbreviated))
                 }
             }
             .chartYAxis {

@@ -47,6 +47,11 @@ final class Receipt {
     var dayKey: String {
         DateHelpers.dayKey.string(from: date)
     }
+
+    /// Sortable year bucket, e.g. "2026". Used to collapse older receipts by year.
+    var yearKey: String {
+        DateHelpers.yearKey.string(from: date)
+    }
 }
 
 @Model

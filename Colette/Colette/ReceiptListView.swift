@@ -1,9 +1,12 @@
 import SwiftUI
 import SwiftData
 
-/// Shows one category's (Groceries or Dining Out) receipts grouped by month,
-/// with a summary header and monthly bar chart at the top. Used for both the
-/// Groceries and Dining Out tabs — only the `category` filter differs.
+/// Shows one category's (Groceries or Dining Out) receipts, with a summary
+/// header, a Groceries-vs-Dining-Out split bar, and a daily spending chart at
+/// the top, then the receipts themselves — current month flat, older ones
+/// collapsible by month/year. Used for both the Groceries and Dining Out
+/// tabs — only the `category` filter differs. Goal/budget setting lives only
+/// on the Home tab now.
 struct ReceiptListView: View {
     let category: ReceiptCategory
 
@@ -20,28 +23,36 @@ struct ReceiptListView: View {
         CurrencyConverter.convert(receipt.total, from: receipt.currency, to: displayCurrency)
     }
 
-    private var months: [MonthSpending] {
-        Dictionary(grouping: receipts, by: { $0.monthKey })
-            .map { key, recs in
-                MonthSpending(
-                    id: key,
-                    label: monthLabel(from: key),
-                    date: firstOfMonth(from: key),
-                    total: recs.reduce(0) { $0 + inDisplayCurrency($1) },
-                    receipts: recs.sorted { $0.date > $1.date }
-                )
-            }
-            .sorted { $0.id > $1.id }
+    private func total(of receipts: [Receipt]) -> Double {
+        receipts.reduce(0) { $0 + inDisplayCurrency($1) }
     }
 
-    private var chartData: [MonthSpending] {
-        Array(months.sorted { $0.id < $1.id }.suffix(6))
+    /// Last 14 days of spending for this category, in displayCurrency.
+    private var chartData: [PeriodSpending] {
+        let all = aggregateSpending(receipts, by: .daily, convert: inDisplayCurrency)
+        return Array(all.suffix(14))
     }
 
     private var monthToDateTotal: Double {
         receipts
             .filter { $0.monthKey == currentMonthKey }
             .reduce(0) { $0 + inDisplayCurrency($1) }
+    }
+
+    /// This month's total for the given category (not just this tab's own
+    /// category) in displayCurrency — feeds the Groceries-vs-Dining-Out split
+    /// bar, which needs both sides regardless of which tab you're on.
+    private func monthToDateTotal(for category: ReceiptCategory) -> Double {
+        allReceipts
+            .filter { $0.category == category && $0.monthKey == currentMonthKey }
+            .reduce(0) { $0 + inDisplayCurrency($1) }
+    }
+
+    /// Receipts split into: current month (flat), older months this year
+    /// (collapsible), and prior years (collapsible, with collapsible months
+    /// inside).
+    private var grouped: (currentMonth: [Receipt], otherMonthsThisYear: [MonthGroup], otherYears: [YearGroup]) {
+        groupReceiptsForDisplay(receipts)
     }
 
     var body: some View {
@@ -51,18 +62,28 @@ struct ReceiptListView: View {
                     summaryHeader
                         .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
                         .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+
+                    CategorySplitBar(
+                        groceryTotal: monthToDateTotal(for: .grocery),
+                        diningTotal: monthToDateTotal(for: .diningOut)
+                    )
+                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
 
                     if !chartData.isEmpty {
-                        SpendingChart(data: chartData, displayCurrency: displayCurrency)
+                        SpendingChart(data: chartData, displayCurrency: displayCurrency, barColor: category.color)
                             .frame(height: 200)
                             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 16, trailing: 16))
                             .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                     }
                 }
 
-                ForEach(months) { month in
-                    Section {
-                        ForEach(month.receipts) { receipt in
+                if !grouped.currentMonth.isEmpty {
+                    Section("This Month") {
+                        ForEach(grouped.currentMonth) { receipt in
                             NavigationLink {
                                 ReceiptDetailView(receipt: receipt)
                             } label: {
@@ -70,14 +91,66 @@ struct ReceiptListView: View {
                             }
                         }
                         .onDelete { offsets in
-                            for index in offsets { context.delete(month.receipts[index]) }
+                            for index in offsets { context.delete(grouped.currentMonth[index]) }
                         }
-                    } header: {
-                        HStack {
-                            Text(month.label)
-                            Spacer()
-                            Text(month.total, format: .currency(code: displayCurrency))
-                                .fontWeight(.semibold)
+                    }
+                }
+
+                ForEach(grouped.otherMonthsThisYear) { month in
+                    Section {
+                        DisclosureGroup {
+                            ForEach(month.receipts) { receipt in
+                                NavigationLink {
+                                    ReceiptDetailView(receipt: receipt)
+                                } label: {
+                                    receiptRow(receipt)
+                                }
+                            }
+                            .onDelete { offsets in
+                                for index in offsets { context.delete(month.receipts[index]) }
+                            }
+                        } label: {
+                            HStack {
+                                Text(month.label)
+                                Spacer()
+                                Text(total(of: month.receipts), format: .currency(code: displayCurrency))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                ForEach(grouped.otherYears) { year in
+                    Section {
+                        DisclosureGroup {
+                            ForEach(year.months) { month in
+                                DisclosureGroup {
+                                    ForEach(month.receipts) { receipt in
+                                        NavigationLink {
+                                            ReceiptDetailView(receipt: receipt)
+                                        } label: {
+                                            receiptRow(receipt)
+                                        }
+                                    }
+                                    .onDelete { offsets in
+                                        for index in offsets { context.delete(month.receipts[index]) }
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(month.label)
+                                        Spacer()
+                                        Text(total(of: month.receipts), format: .currency(code: displayCurrency))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Text(year.label)
+                                Spacer()
+                                Text(total(of: year.months.flatMap(\.receipts)), format: .currency(code: displayCurrency))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }

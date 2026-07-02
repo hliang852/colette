@@ -15,10 +15,15 @@ struct ReviewView: View {
     @State private var isProcessing: Bool
     @State private var storeName = ""
     @State private var date = Date.now
-    @State private var total = 0.0
+    // Kept as text (rather than a Double bound directly to the field) so the
+    // field can start truly blank instead of showing a persistent "0" that
+    // has to be deleted before typing an amount.
+    @State private var totalText = ""
     @State private var currency = "USD"
     @State private var category: ReceiptCategory = .grocery
     @State private var saveToPhotos = false
+
+    private var total: Double { Double(totalText) ?? 0 }
 
     init(image: UIImage?) {
         self.image = image
@@ -35,7 +40,7 @@ struct ReviewView: View {
                     HStack {
                         Text("Total")
                         Spacer()
-                        TextField("0.00", value: $total, format: .number)
+                        TextField("0.00", text: $totalText)
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                     }
@@ -84,7 +89,8 @@ struct ReviewView: View {
         let parsed = ReceiptParser.parse(lines: lines)
         storeName = parsed.storeName
         date = parsed.date
-        total = parsed.total
+        // Leave blank rather than "0.00" when OCR didn't find an amount.
+        totalText = parsed.total > 0 ? String(format: "%.2f", parsed.total) : ""
         isProcessing = false
     }
 

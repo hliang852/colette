@@ -3,8 +3,8 @@ import SwiftData
 import UniformTypeIdentifiers
 
 /// The Home tab: a combined overview of grocery + dining-out spending, with
-/// a stacked monthly/daily chart, a monthly spending goal, and a list of the
-/// most recent receipts.
+/// a stacked monthly/daily chart, a monthly spending goal, and a list of
+/// receipts (current month flat, older ones collapsible by month/year).
 struct HomeView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Receipt.date, order: .reverse) private var receipts: [Receipt]
@@ -21,6 +21,10 @@ struct HomeView: View {
     @AppStorage("monthlyGoalAmount") private var goalAmount: Double = 0
     @AppStorage("monthlyGoalCurrency") private var goalCurrency: String = "USD"
     @State private var showGoalSheet = false
+
+    // MARK: - Appearance
+
+    @AppStorage("appearanceMode") private var appearanceMode: String = "system"
 
     // MARK: - Backup / restore state
 
@@ -44,6 +48,10 @@ struct HomeView: View {
 
     private func inDisplayCurrency(_ receipt: Receipt) -> Double {
         CurrencyConverter.convert(receipt.total, from: receipt.currency, to: displayCurrency)
+    }
+
+    private func total(of receipts: [Receipt]) -> Double {
+        receipts.reduce(0) { $0 + inDisplayCurrency($1) }
     }
 
     private var chartData: [PeriodSpending] {
@@ -81,8 +89,11 @@ struct HomeView: View {
         return monthToDateTotal / goalInDisplayCurrency
     }
 
-    private var recentReceipts: [Receipt] {
-        Array(receipts.prefix(5))
+    /// Receipts split into: current month (flat), older months this year
+    /// (collapsible), and prior years (collapsible, with collapsible months
+    /// inside).
+    private var grouped: (currentMonth: [Receipt], otherMonthsThisYear: [MonthGroup], otherYears: [YearGroup]) {
+        groupReceiptsForDisplay(receipts)
     }
 
     var body: some View {
@@ -92,34 +103,91 @@ struct HomeView: View {
                     summaryHeader
                         .listRowInsets(EdgeInsets(top: 16, leading: 16, bottom: 8, trailing: 16))
                         .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
 
                     // Sits below the total and above the trend chart, per the
                     // home tab's reading order: how much, against goal, then trend.
                     if let goalProgress {
-                        goalProgressView(progress: goalProgress)
+                        BudgetProgressView(progress: goalProgress, goalAmount: goalInDisplayCurrency, currencyCode: displayCurrency)
                             .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
                             .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                     }
 
                     granularityPicker
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                         .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
 
                     if !chartData.isEmpty {
                         HomeSpendingChart(data: chartData, displayCurrency: displayCurrency, granularity: granularity)
                             .frame(height: 220)
                             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 16, trailing: 16))
                             .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                     }
                 }
 
-                if !recentReceipts.isEmpty {
-                    Section("Recent") {
-                        ForEach(recentReceipts) { receipt in
+                if !grouped.currentMonth.isEmpty {
+                    Section("This Month") {
+                        ForEach(grouped.currentMonth) { receipt in
                             NavigationLink {
                                 ReceiptDetailView(receipt: receipt)
                             } label: {
                                 receiptRow(receipt)
+                            }
+                        }
+                    }
+                }
+
+                ForEach(grouped.otherMonthsThisYear) { month in
+                    Section {
+                        DisclosureGroup {
+                            ForEach(month.receipts) { receipt in
+                                NavigationLink {
+                                    ReceiptDetailView(receipt: receipt)
+                                } label: {
+                                    receiptRow(receipt)
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Text(month.label)
+                                Spacer()
+                                Text(total(of: month.receipts), format: .currency(code: displayCurrency))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                ForEach(grouped.otherYears) { year in
+                    Section {
+                        DisclosureGroup {
+                            ForEach(year.months) { month in
+                                DisclosureGroup {
+                                    ForEach(month.receipts) { receipt in
+                                        NavigationLink {
+                                            ReceiptDetailView(receipt: receipt)
+                                        } label: {
+                                            receiptRow(receipt)
+                                        }
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(month.label)
+                                        Spacer()
+                                        Text(total(of: month.receipts), format: .currency(code: displayCurrency))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Text(year.label)
+                                Spacer()
+                                Text(total(of: year.months.flatMap(\.receipts)), format: .currency(code: displayCurrency))
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -155,13 +223,19 @@ struct HomeView: View {
                         } label: {
                             Label("Import Data", systemImage: "square.and.arrow.down")
                         }
+                        Divider()
+                        Picker("Appearance", selection: $appearanceMode) {
+                            Text("System").tag("system")
+                            Text("Light").tag("light")
+                            Text("Dark").tag("dark")
+                        }
                     } label: {
                         Image(systemName: "gearshape")
                     }
                 }
             }
             .sheet(isPresented: $showGoalSheet) {
-                GoalSettingView(goalAmount: $goalAmount, goalCurrency: $goalCurrency)
+                GoalSettingView(goalAmount: $goalAmount, goalCurrency: $goalCurrency, title: "Spending Goal")
             }
         }
         // Export: native share sheet over the freshly written JSON file.
@@ -296,27 +370,6 @@ struct HomeView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
-    }
-
-    /// Progress toward this month's goal. Turns red and shows "Over goal"
-    /// once spending passes 100%, instead of just clipping the bar at full.
-    private func goalProgressView(progress: Double) -> some View {
-        let isOverBudget = progress > 1.0
-
-        return VStack(alignment: .leading, spacing: 6) {
-            ProgressView(value: min(progress, 1.0))
-                .tint(isOverBudget ? .red : .accentColor)
-
-            HStack {
-                Text(isOverBudget ? "Over goal" : "\(Int((progress * 100).rounded()))% of goal")
-                    .font(.caption)
-                    .foregroundStyle(isOverBudget ? .red : .secondary)
-                Spacer()
-                Text("Goal: \(goalInDisplayCurrency, format: .currency(code: displayCurrency))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
     }
 
     private var granularityPicker: some View {

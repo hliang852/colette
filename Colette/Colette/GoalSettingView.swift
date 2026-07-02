@@ -3,20 +3,27 @@ import SwiftUI
 /// Lets the user set (or remove) a recurring monthly spending goal, entered in
 /// either USD or HKD. Shows a live converted preview in the other currency
 /// using the same hardcoded 1 USD = 7.8 HKD rate as the rest of the app.
+///
+/// Reused for both the Home tab's overall goal and the per-category budgets
+/// on the Groceries / Dining Out tabs — `title` distinguishes which one is
+/// being edited.
 struct GoalSettingView: View {
     /// Stored goal amount, in `goalCurrency`. 0 means "no goal set".
     @Binding var goalAmount: Double
     /// Which currency the stored goal amount is denominated in.
     @Binding var goalCurrency: String
 
+    let title: String
+
     @Environment(\.dismiss) private var dismiss
 
     @State private var amountText: String
     @State private var currency: String
 
-    init(goalAmount: Binding<Double>, goalCurrency: Binding<String>) {
+    init(goalAmount: Binding<Double>, goalCurrency: Binding<String>, title: String = "Spending Goal") {
         self._goalAmount = goalAmount
         self._goalCurrency = goalCurrency
+        self.title = title
         _amountText = State(initialValue: goalAmount.wrappedValue > 0
             ? String(format: "%.2f", goalAmount.wrappedValue) : "")
         _currency = State(initialValue: goalCurrency.wrappedValue)
@@ -71,7 +78,7 @@ struct GoalSettingView: View {
                     }
                 }
             }
-            .navigationTitle("Spending Goal")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
